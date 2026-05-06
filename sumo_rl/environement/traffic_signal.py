@@ -13,7 +13,7 @@ else:
     raise EnvironmentError("Please declare the environment variable 'SUMO_HOME' in Dockerfile or in your system environment variables")
 
 import numpy as np
-from gymnasium import space
+from gymnasium import spaces
 # Tip: The reason we don't import traci directly is to use that as the input parameter for the environment, which allows us to control multiple intersections in the same simulation.
 
 class TrafficSignalEnv:
@@ -116,6 +116,10 @@ class TrafficSignalEnv:
         If the traffic signal is in transition, it will update the phase according to the transition queue and timer.
         """
         if self.is_transitioning:
+            # The yellow_time is fixed, so if phase_timer is equal or more than yellow_time, it means we will get into next yellow phase or the 
+            # target green phase in the next step, so we reset the timer and pop the next phase in the transition queue.
+            if self.phase_timer >= self.yellow_time:
+                self.phase_timer = 0
             # Get into new phase
             if self.phase_timer == 0:
                 next_phase = self.transition_queue.pop(0)
@@ -123,10 +127,6 @@ class TrafficSignalEnv:
                     self.is_transitioning = False
                 self.current_phase = next_phase
                 self.sumo_traci.trafficlight.setPhase(self.intersection_id, self.current_phase)
-            # Check if the current phase duration has reached the minimum yellow time.
-            # Green time check is handled in the main environment file, since it also needs to consider the case when there is no transition (green to green).
-            if self.phase_timer >= self.yellow_time:
-                self.phase_timer = -1 # Set timer to -1, because we add 1 at the end of the function, so it will be 0 in the next step.
 
         self.phase_timer += 1
 
@@ -148,7 +148,7 @@ class TrafficSignalEnv:
         """
         waiting_time = 0
         for lane in self.lanes:
-            waiting_time += self.sumo_traci.getWaitingTime(lane)
+            waiting_time += self.sumo_traci.lane.getWaitingTime(lane)
         return waiting_time
 
     def get_pedestrian_queue(self):
@@ -203,7 +203,16 @@ class TrafficSignalEnv:
         min_green = 1 if self.phase_timer >= self.min_green_time else 0
         vehicle_queue = self.get_vehicle_queue()
         ped_queue = self.get_pedestrian_queue()
-        
+
+        # Normalize the queue length to [0, 1] ny dividing the MAX_VEHICLE and MAX_PED.
+        length = self.sumo_traci.lane.getLength(self.lanes[0]) # Get the length of the lane, which is the same for all lanes controlled by this traffic signal, and use it as the max queue length, since if the queue length exceeds the lane length, it means the lane is fully blocked.
+        car_length = 5.0 # Average car length
+        pedestrain_lenth = 0.215 # Official website pedestrian class's length
+        MAX_VEHICLE = length / car_length
+        MAX_PED = length / 0.215
+        vehicle_queue = [q / MAX_VEHICLE for q in vehicle_queue]
+        ped_queue = [q / MAX_PED for q in ped_queue]
+
         raw_state_feature = {
             "phase_one_hot": phase_one_hot, # List
             "min_green": min_green, # Number
@@ -215,22 +224,30 @@ class TrafficSignalEnv:
     def get_valid_actions(self):
         """
         Get the valid actions for the current state of the traffic signal.
-        For baseline scenario, the constraint only comes from min_green_time and max_green_time.
+        For baseline scenario, the constraint only comes from min_green_time and max_green_time, and yellow_time.
         If it's extension scenario, we can also add other constraints, such as pedestrian safety constraint, which means if there are pedestrians waiting, we cannot change to a green phase that will cut them off.
         """
         # Current action space is only 2 actions, which is to set NS green or set EW green, so we only need to check the constraints for these two actions.
         valid_actions = [1, 1]# Default is both actions are valid.
 
-        # Condition 1: Didn't reach min_green_time, so we cannot change to another green phase.
+        # Condition 1: Yellow time is fixed, so if we are in the yellow phase, we cannot change to any green phase.
+        if self.is_transitioning:
+            valid_actions = [0, 0]
+            # The action is in the transition process to current_green_phase, and in the logic of set_phase function,
+            # if the target phase is the same as current_green_phase, we'll just ignore the action and keep the current phase, don't need to worry we'll reset the timer in that case.
+            valid_actions[self.green_phases.index(self.current_green_phase)] = 1 # Only the action that keeps the current green phase is valid.
+            return valid_actions
+        
+        # Condition 2: Didn't reach min_green_time, so we cannot change to another green phase.
         if self.phase_timer < self.min_green_time:
             valid_actions = [0 ,0]
             valid_actions[self.green_phases.index(self.current_green_phase)] = 1 # Only the action that keeps the current green phase is valid.
         
-        # Condition 2: Reached max_green_time. so we have to change to another green phase.
+        # Condition 3: Reached max_green_time. so we have to change to another green phase.
         elif self.phase_timer >= self.max_green_time:
             valid_actions = [1 ,1]
             valid_actions[self.green_phases.index(self.current_green_phase)] = 0 # Only the action that changes the current green phase is valid.
-        
+
         return valid_actions
         
         
