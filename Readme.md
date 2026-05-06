@@ -35,7 +35,7 @@ sumo_rl/
 │   │    └──  single_intersection.sumocfg
 │   └── 2*2 grid/
 │
-├── env/              
+├── environment/              
 │   └── sumo_env.py # Turn SUMO into RL problem(MDP)
 │
 ├── agents/            # RL method (Learning policy + Constraint)
