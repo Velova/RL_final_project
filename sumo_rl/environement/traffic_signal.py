@@ -3,6 +3,8 @@ This file contains the implementation of the traffic signal environment for SUMO
 """
 import os
 import sys
+
+# Import traci in a script
 if 'SUMO_HOME' in os.environ:
     # Add the SUMO tools directory to the python path
     tools_path = os.path.join(os.environ['SUMO_HOME'], 'tools')
@@ -203,12 +205,33 @@ class TrafficSignalEnv:
         ped_queue = self.get_pedestrian_queue()
         
         raw_state_feature = {
-            "phase_one_hot": phase_one_hot,
-            "min_green": min_green,
-            "vehicle_queue": vehicle_queue,
-            "ped_queue": ped_queue
+            "phase_one_hot": phase_one_hot, # List
+            "min_green": min_green, # Number
+            "vehicle_queue": vehicle_queue, # List
+            "ped_queue": ped_queue # List
         }
         return raw_state_feature
+
+    def get_valid_actions(self):
+        """
+        Get the valid actions for the current state of the traffic signal.
+        For baseline scenario, the constraint only comes from min_green_time and max_green_time.
+        If it's extension scenario, we can also add other constraints, such as pedestrian safety constraint, which means if there are pedestrians waiting, we cannot change to a green phase that will cut them off.
+        """
+        # Current action space is only 2 actions, which is to set NS green or set EW green, so we only need to check the constraints for these two actions.
+        valid_actions = [1, 1]# Default is both actions are valid.
+
+        # Condition 1: Didn't reach min_green_time, so we cannot change to another green phase.
+        if self.phase_timer < self.min_green_time:
+            valid_actions = [0 ,0]
+            valid_actions[self.green_phases.index(self.current_green_phase)] = 1 # Only the action that keeps the current green phase is valid.
+        
+        # Condition 2: Reached max_green_time. so we have to change to another green phase.
+        elif self.phase_timer >= self.max_green_time:
+            valid_actions = [1 ,1]
+            valid_actions[self.green_phases.index(self.current_green_phase)] = 0 # Only the action that changes the current green phase is valid.
+        
+        return valid_actions
         
         
 
