@@ -18,6 +18,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..",
 from sumo_rl.environement.sumo_env import SUMOEnvironment
 from sumo_rl.agents.fixed_time_agent import FixedTimeAgent
 from sumo_rl.agents.max_pressure_agent import MaxPressureAgent
+from sumo_rl.agents.sotl_agent import SOTLAgent
 
 CFG_FILE = os.path.join(
     os.path.dirname(__file__), "..", "nets", "single-intersection", "single_intersection.sumocfg"
@@ -88,12 +89,13 @@ def main():
         use_gui=False,
     )
 
-    ft_agent = FixedTimeAgent(cycle_time=30, num_intersections=1)
-    mp_agent = MaxPressureAgent(num_intersections=1)
+    ft_agent   = FixedTimeAgent(cycle_time=30, num_intersections=1)
+    mp_agent   = MaxPressureAgent(num_intersections=1)
+    sotl_agent = SOTLAgent(kappa=5, num_intersections=1)
 
     # Each entry: (display name, agent, get_action callable)
-    # Using lambdas gives both agents a uniform (state, signals) interface
-    # without forcing them to share implementation details.
+    # Lambdas give all agents a uniform (state, signals) interface.
+    # SPre+ is omitted here — it requires a trained policy (see spre_plus_agent.py).
     experiments = [
         (
             "Fixed-Time (30s cycle)",
@@ -104,6 +106,11 @@ def main():
             "Max Pressure",
             mp_agent,
             lambda state, signals: mp_agent.select_action(signals),
+        ),
+        (
+            "SOTL (kappa=5)",
+            sotl_agent,
+            lambda state, signals: sotl_agent.select_action(signals),
         ),
     ]
 
